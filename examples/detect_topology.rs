@@ -7,8 +7,8 @@
 //! [`optimal_split`], [`PcoreHasher::split`].
 
 use pcore_blake3::{
-    efficiency_cpus, optimal_split, performance_cpus, performance_physical_cpus, topology,
-    PcoreHasher, Topology,
+    all_physical_cpus, efficiency_cpus, optimal_split, performance_cpus, performance_physical_cpus,
+    topology, PcoreHasher, Topology,
 };
 
 fn main() {
@@ -16,11 +16,13 @@ fn main() {
     let p = performance_cpus();
     let p_phys = performance_physical_cpus();
     let e = efficiency_cpus();
+    let all_phys = all_physical_cpus();
 
     println!("Topology              : {topo:?}");
     println!("Performance cores     : {p:?} ({} threads)", p.len());
     println!("  ...physical (no SMT): {p_phys:?} ({} cores)", p_phys.len());
     println!("Efficiency cores      : {e:?} ({} threads)", e.len());
+    println!("All physical (P+E)    : {all_phys:?} ({} cores, for --all-physical)", all_phys.len());
 
     let hasher = PcoreHasher::new();
     let (tpf, cf) = hasher.split();

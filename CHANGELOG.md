@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-18
+
+### Added
+
+- `PcoreHasher::new_all_physical()` — one thread per physical core across
+  **both P and E cores**, one file per core (no intra-file tree split, so
+  slow E-cores never straggle inside a file; each core pulls whole files
+  off the shared queue). Maximum aggregate throughput when using the
+  E-cores is acceptable. Measured on the reference i9: +43% in-memory over
+  P-cores-only (isolating the E-core contribution; t=+49, n=15), and ~3x
+  `new()` on a batch of 64 diverse files (one-file-per-core also beats
+  tree-splitting small files). For a single file it uses one core — prefer
+  `new()` there.
+- `all_physical_cpus()` helper and CLI `--all-physical` flag; `--info`
+  reports the all-physical core count.
+
+### Notes
+
+- E-cores are less power-efficient per unit work, so `new_all_physical()`
+  trades battery/thermal for speed on laptops; `new()` (P-cores) remains
+  the default.
+
 ## [0.3.1] - 2026-07-18
 
 ### Changed
@@ -95,7 +117,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI: build/clippy/test on `ubuntu-latest` and `windows-latest`, plus a
   Linux-side cross-target typecheck of the Windows module.
 
-[Unreleased]: https://github.com/clicraft/pcore-blake3/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/clicraft/pcore-blake3/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/clicraft/pcore-blake3/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/clicraft/pcore-blake3/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/clicraft/pcore-blake3/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/clicraft/pcore-blake3/compare/v0.1.0...v0.2.0

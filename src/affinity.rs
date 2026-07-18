@@ -63,6 +63,16 @@ pub fn performance_physical_cpus() -> Vec<usize> {
     physical_core_leaders(&performance_cpus())
 }
 
+/// One logical CPU per physical core across the WHOLE machine — every
+/// performance core and every efficiency core, SMT siblings collapsed.
+/// This is the set that maximizes aggregate throughput when you're willing
+/// to use the E-cores too (they simply pull fewer work items than P-cores).
+pub fn all_physical_cpus() -> Vec<usize> {
+    let mut cpus = performance_cpus();
+    cpus.extend(efficiency_cpus());
+    physical_core_leaders(&cpus)
+}
+
 /// Pins the calling thread to a single logical CPU.
 ///
 /// Linux: `sched_setaffinity(0, ...)`, which affects only the calling

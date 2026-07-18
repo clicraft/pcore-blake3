@@ -3,11 +3,12 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 fn print_usage(prog: &str) {
-    eprintln!("Usage: {prog} [--info] [--physical] <file>...");
+    eprintln!("Usage: {prog} [--info] [--physical | --all-physical] <file>...");
     eprintln!("  Hashes each file with BLAKE3, using this machine's performance cores");
     eprintln!("  and an optimal thread split. Prints \"<hex-digest>  <path>\" per file.");
-    eprintln!("  --info       print detected CPU topology and thread split, then exit");
-    eprintln!("  --physical   pin one thread per physical P-core (collapse SMT siblings)");
+    eprintln!("  --info          print detected CPU topology and thread split, then exit");
+    eprintln!("  --physical      one thread per physical P-core (collapse SMT siblings)");
+    eprintln!("  --all-physical  one thread per physical core incl. E-cores (max throughput)");
 }
 
 fn main() -> ExitCode {
@@ -16,17 +17,25 @@ fn main() -> ExitCode {
 
     // Collect flags (order-independent) and leave the rest as paths.
     let mut physical = false;
+    let mut all_physical = false;
     let mut info = false;
     let mut paths: Vec<PathBuf> = Vec::new();
     for arg in &args[1..] {
         match arg.as_str() {
             "--physical" => physical = true,
+            "--all-physical" => all_physical = true,
             "--info" => info = true,
             _ => paths.push(PathBuf::from(arg)),
         }
     }
 
-    let hasher = if physical { PcoreHasher::new_physical() } else { PcoreHasher::new() };
+    let hasher = if all_physical {
+        PcoreHasher::new_all_physical()
+    } else if physical {
+        PcoreHasher::new_physical()
+    } else {
+        PcoreHasher::new()
+    };
 
     if info {
         print_info(&hasher);
@@ -65,8 +74,10 @@ fn print_info(hasher: &PcoreHasher) {
     let e_cpus = pcore_blake3::efficiency_cpus();
     let (tpf, cf) = hasher.split();
 
+    let all_phys = pcore_blake3::all_physical_cpus();
     println!("Topology: {}", if topology == Topology::Hybrid { "hybrid" } else { "homogeneous" });
     println!("Performance cores: {p_cpus:?} ({} threads, {} physical)", p_cpus.len(), p_phys.len());
     println!("Efficiency cores: {e_cpus:?} ({} threads)", e_cpus.len());
+    println!("All physical cores (P+E): {} (for --all-physical)", all_phys.len());
     println!("Thread split: {tpf} threads/file x {cf} concurrent files");
 }

@@ -22,8 +22,8 @@
 mod affinity;
 
 pub use affinity::{
-    efficiency_cpus, performance_cpus, performance_physical_cpus, physical_core_leaders,
-    pin_current_thread_to_cpu, topology, Topology,
+    all_physical_cpus, efficiency_cpus, performance_cpus, performance_physical_cpus,
+    physical_core_leaders, pin_current_thread_to_cpu, topology, Topology,
 };
 
 use std::io;
@@ -138,13 +138,43 @@ impl PcoreHasher {
         Self::with_cpus(&default_physical_cpus())
     }
 
+    /// Pins **one thread per physical core across the whole machine** —
+    /// every P-core and every E-core (SMT siblings collapsed), one file per
+    /// core with no internal tree split (`threads_per_file == 1`).
+    ///
+    /// This is the maximum-aggregate-throughput mode when you're willing to
+    /// use the E-cores: on the reference i9 the 14 physical cores hit
+    /// ~1.4x the 6 P-cores alone. One-file-per-core (rather than splitting a
+    /// file's BLAKE3 tree across a mixed-speed pool) is deliberate — it
+    /// avoids slow E-cores becoming stragglers *inside* a single file's
+    /// hash; instead each core independently pulls whole files off the
+    /// shared queue, so fast P-cores simply hash more files than E-cores.
+    ///
+    /// Best for large batches ([`Self::hash_files`]). For a single file it
+    /// uses just one core, so prefer [`Self::new`] there. Note the E-cores
+    /// are less power-efficient per unit work — on a laptop this trades
+    /// battery/thermal for speed.
+    pub fn new_all_physical() -> Self {
+        let cpus = all_physical_cpus();
+        if cpus.is_empty() {
+            return Self::new();
+        }
+        // One thread per file, one file per core: pure files-parallel.
+        Self::build(&cpus, 1, cpus.len())
+    }
+
     /// Same as [`Self::new`] but pinned only to the given logical CPU IDs
     /// — useful for testing, or to deliberately restrict to a subset
     /// (e.g. efficiency cores, for comparison).
     pub fn with_cpus(cpus: &[usize]) -> Self {
-        let total = cpus.len().max(1);
-        let (threads_per_file, concurrent_files) = optimal_split(total);
+        let (threads_per_file, concurrent_files) = optimal_split(cpus.len().max(1));
+        Self::build(cpus, threads_per_file, concurrent_files)
+    }
 
+    /// Builds the pinned pools for an explicit split. `concurrent_files`
+    /// pools, each of `threads_per_file` threads pinned to its own disjoint
+    /// slice of `cpus`.
+    fn build(cpus: &[usize], threads_per_file: usize, concurrent_files: usize) -> Self {
         let pools = (0..concurrent_files)
             .map(|slot| {
                 if cpus.is_empty() {
@@ -254,6 +284,35 @@ mod tests {
         let phys_threads = { let (t, c) = phys.split(); t * c };
         let all_threads = { let (t, c) = PcoreHasher::new().split(); t * c };
         assert!(phys_threads <= all_threads, "physical uses <= threads than all-threads");
+    }
+
+    #[test]
+    fn new_all_physical_hashes_correctly_and_is_files_parallel() {
+        let data: Vec<u8> = (0..1 << 20).map(|i| (i % 251) as u8).collect();
+        let h = PcoreHasher::new_all_physical();
+        assert_eq!(h.hash_bytes(&data), blake3::hash(&data));
+        // One thread per file (no intra-file tree split): tpf == 1, and it
+        // uses at least as many concurrent files as the P-only physical set.
+        let (tpf, cf) = h.split();
+        assert_eq!(tpf, 1, "all-physical is one-file-per-core");
+        assert!(cf >= PcoreHasher::new_physical().split().1.max(1));
+
+        // Batch correctness across the mixed-speed pools.
+        let files: Vec<_> = (0..5u8)
+            .map(|i| {
+                let mut p = std::env::temp_dir();
+                p.push(format!("pcore-allphys-test-{i}-{:?}", std::thread::current().id()));
+                std::fs::write(&p, [i; 4096]).unwrap();
+                p
+            })
+            .collect();
+        let got = h.hash_files(&files);
+        for (i, r) in got.into_iter().enumerate() {
+            assert_eq!(r.unwrap(), blake3::hash(&[i as u8; 4096]));
+        }
+        for f in &files {
+            let _ = std::fs::remove_file(f);
+        }
     }
 
     #[test]

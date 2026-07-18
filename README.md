@@ -69,10 +69,26 @@ is bandwidth-bound and the extra 6 threads cost ~−2.5%.
 half the threads of `new()`. It is *not* a throughput win (it's ~2–3%
 slower in-memory, since the library uses P-cores where SMT helps); its
 value is a smaller thread footprint that leaves the SMT siblings free.
-**For maximum throughput, use `new()`** — especially on I/O-bound batches,
-where the idle sibling hides read latency. (An earlier, cache-hot
-measurement wrongly suggested SMT was worthless; the numbers above are the
-corrected, DRAM-fed result.)
+(An earlier, cache-hot measurement wrongly suggested SMT was worthless;
+the numbers above are the corrected, DRAM-fed result.)
+
+### Using the E-cores too: maximum throughput
+
+The modes above stay on P-cores. To hash as fast as the machine can,
+`PcoreHasher::new_all_physical()` uses **one thread per physical core
+across P *and* E cores**, one file per core. Measured on the reference i9:
+
+| comparison | result |
+|---|---|
+| 6 P-cores vs 14 physical cores, in-memory (isolates E-cores) | **+43%** (t=+49, n=15) |
+| batch of 64 diverse files, `new_all_physical()` vs `new()` | **~3x** |
+
+The batch win is larger than the raw +43% because one-file-per-core also
+beats splitting each small file's BLAKE3 tree across a pool. It uses the
+E-cores (less power-efficient per unit work — a battery/thermal tradeoff
+on laptops), and for a *single* file it uses just one core, so prefer
+`new()` there. The slow E-cores never straggle: each core pulls whole
+files off a shared queue, so P-cores simply hash more files than E-cores.
 
 ## Install
 
@@ -111,11 +127,15 @@ let hash = hasher.hash_bytes(b"some data");
 // in input order, one io::Result per file:
 let results = hasher.hash_files(&["a.pdf".into(), "b.pdf".into()]);
 
-// One thread per PHYSICAL P-core (collapse SMT siblings). For CPU-bound,
-// in-memory hashing this matches new()'s throughput with half the threads
-// — BLAKE3 saturates a core's SIMD units from one thread, so the second
-// SMT thread adds nothing. Prefer new() when the batch is I/O-bound.
+// One thread per PHYSICAL P-core (collapse SMT siblings) — half the
+// threads of new(), a smaller footprint (not a throughput win).
 let hasher = PcoreHasher::new_physical();
+
+// MAXIMUM throughput: one thread per physical core across P AND E cores,
+// one file per core. On a batch of many files this was ~3x new() on the
+// reference i9 (E-cores add ~+43% raw; one-file-per-core also beats
+// tree-splitting small files). Best for large batches; uses the E-cores.
+let hasher = PcoreHasher::new_all_physical();
 ```
 
 ## CLI usage
@@ -154,12 +174,14 @@ arguments) and validated on real hybrid hardware:
 | `topology() -> Topology` | `Hybrid` or `Homogeneous` |
 | `performance_cpus() -> Vec<usize>` | logical CPU ids of P-cores (all CPUs on homogeneous machines) |
 | `performance_physical_cpus() -> Vec<usize>` | one logical CPU per physical P-core (SMT siblings collapsed) |
+| `all_physical_cpus() -> Vec<usize>` | one logical CPU per physical core, P and E (SMT collapsed) |
 | `efficiency_cpus() -> Vec<usize>` | logical CPU ids of E-cores (empty on homogeneous machines) |
 | `physical_core_leaders(&[usize]) -> Vec<usize>` | collapse SMT siblings in any CPU set |
 | `pin_current_thread_to_cpu(usize)` | pin the calling thread to one logical CPU |
 | `optimal_split(threads) -> (tpf, cf)` | the threads/2 heuristic: threads per file x concurrent files |
 | `PcoreHasher::new()` | pools pinned to auto-detected P-cores (all P-threads) |
 | `PcoreHasher::new_physical()` | one thread per physical P-core (SMT siblings collapsed) |
+| `PcoreHasher::new_all_physical()` | one thread per physical core incl. E-cores; max batch throughput |
 | `PcoreHasher::with_cpus(&[usize])` | pools pinned to an explicit CPU set |
 | `PcoreHasher::split()` | the (threads/file, concurrent files) this hasher chose |
 | `PcoreHasher::hash_bytes(&[u8])` | hash an in-memory buffer |
