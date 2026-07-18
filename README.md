@@ -31,14 +31,21 @@ thread count, from above 4 threads up; no file-splitting at or below
 roughly 1.5-2x in every fair, same-thread-count comparison run during
 this benchmarking. `optimal_split()` implements exactly that heuristic.
 
-Measured effect of core choice on the reference machine (256 MiB buffer,
-`pcore_vs_ecore` example):
+Core choice on the reference machine (256 MiB buffer, `pcore_vs_ecore`
+example). At **equal thread count** (8 vs 8, the fair comparison) P- and
+E-cores are nearly tied — because those 8 P-threads pack onto just 4
+physical P-cores via SMT, so 4 SMT'd P-cores ≈ 8 E-cores here:
 
 | configuration | throughput |
 |---|---|
 | single thread | ~2.2 GiB/s |
-| 8 E-core threads (4x2) | ~8.5 GiB/s |
-| 12 P-core threads (6x2) | ~13.2 GiB/s |
+| 8 E-core threads (4x2) | ~8.3 GiB/s |
+| 8 P-core threads (4x2) | ~8.6 GiB/s |
+
+The reason to pin to P-cores isn't a big per-thread win — it's that
+`PcoreHasher::new()` then gets to use **all 12 P-threads** (~13 GiB/s)
+without slow E-cores dragging down a shared work-stealing pool as
+stragglers.
 
 ## Install
 

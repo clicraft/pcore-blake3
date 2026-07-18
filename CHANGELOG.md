@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `pcore_vs_ecore` example now compares P- and E-cores at **equal thread
+  count** (the fair comparison) instead of all-P vs all-E, which conflated
+  core speed with core count. README throughput table updated to match.
+
 ## [0.2.0] - 2026-07-18
 
 ### Added

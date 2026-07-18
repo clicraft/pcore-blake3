@@ -40,13 +40,35 @@ fn main() {
     let p_cpus = performance_cpus();
     let e_cpus = efficiency_cpus();
 
-    println!("Buffer: {} MiB, best of {REPS} runs each\n", SIZE >> 20);
-    let data: Vec<u8> = (0..SIZE).map(|i| (i % 251) as u8).collect();
+    // Fair comparison: EQUAL thread counts on both core types. Using all
+    // P-threads vs all E-threads would conflate "P-cores are faster" with
+    // "there are simply more P-threads", so cap both sides to the smaller
+    // pool's size and take a prefix of each.
+    let n = p_cpus.len().min(e_cpus.len());
+    let p_subset = &p_cpus[..n];
+    let e_subset = &e_cpus[..n];
 
-    let p_hasher = PcoreHasher::with_cpus(&p_cpus);
-    let e_hasher = PcoreHasher::with_cpus(&e_cpus);
-    let (p_tpf, p_cf) = p_hasher.split();
-    let (e_tpf, e_cf) = e_hasher.split();
+    let p_hasher = PcoreHasher::with_cpus(p_subset);
+    let e_hasher = PcoreHasher::with_cpus(e_subset);
+    // Same thread count -> identical split for both, so the only variable
+    // is which physical cores run the work.
+    let (tpf, cf) = p_hasher.split();
+
+    println!("Buffer: {} MiB, best of {REPS} runs each", SIZE >> 20);
+    println!("Fair comparison: {n} threads each, {tpf} threads/file x {cf} concurrent files");
+    println!("  P-core threads: {p_subset:?}");
+    println!("  E-core threads: {e_subset:?}");
+    if n < p_cpus.len() {
+        println!(
+            "  (note: this machine has {} P-threads and {} E-threads; capping to {n} for parity.",
+            p_cpus.len(),
+            e_cpus.len()
+        );
+        println!("   Intel P-cores use SMT, so these {n} P-threads sit on {} physical cores.)", n / 2);
+    }
+    println!();
+
+    let data: Vec<u8> = (0..SIZE).map(|i| (i % 251) as u8).collect();
 
     // Warm-up (page in the buffer, spin up the pools) before timing.
     let p_digest = p_hasher.hash_bytes(&data);
@@ -72,19 +94,19 @@ fn main() {
     );
     println!(
         "{:<34} {:>12.1} {:>12.0}",
-        format!("{} P-core threads ({p_tpf}x{p_cf})", p_cpus.len()),
+        format!("{n} P-core threads ({tpf}x{cf})"),
         t_p.as_secs_f64() * 1e3,
         mib_s(SIZE, t_p)
     );
     println!(
         "{:<34} {:>12.1} {:>12.0}",
-        format!("{} E-core threads ({e_tpf}x{e_cf})", e_cpus.len()),
+        format!("{n} E-core threads ({tpf}x{cf})"),
         t_e.as_secs_f64() * 1e3,
         mib_s(SIZE, t_e)
     );
 
     println!(
-        "\nP-core pool is {:.2}x the E-core pool on this machine (digests identical).",
+        "\nAt equal thread count, P-cores are {:.2}x the E-cores here (digests identical).",
         t_e.as_secs_f64() / t_p.as_secs_f64()
     );
 }
