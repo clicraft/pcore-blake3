@@ -137,6 +137,35 @@ lower clocks — but there are more of them, so putting one thread on each
 E-core too adds ~40% aggregate throughput. That's why both modes span all
 physical cores, not just the P-cores.)
 
+## How much does this actually matter?
+
+Be clear-eyed about the gains. On the reference machine, each layer of
+optimization bought roughly an order of magnitude *less* than the one above:
+
+- **Algorithm choice dominates.** BLAKE3 over hardware-accelerated SHA-256
+  is ~1.5–2x — the one lever that actually moves the needle.
+- **Thread placement is a refinement.** One thread per physical core beats
+  the naive "use every logical thread" by only ~9%.
+- **Instruction-level tuning is noise.** The SMT effect is ±2.5% — small
+  enough that confirming its sign needed a t-test.
+
+So: **pick the right algorithm; don't agonize over the rest.** If you just
+want fast hashing, calling the [`blake3`](https://crates.io/crates/blake3)
+crate with its default thread pool already gets you ~90% of what this crate
+does, with no dependency and no config.
+
+`core-blake3` earns its keep only in narrow cases — where hashing shares
+the machine with other work and you'd rather not saturate every logical
+thread (a service that hashes *and* serves, latency-sensitive or shared
+boxes, laptops minding thermals). There it delivers the same throughput on
+fewer, better-placed threads, leaving the SMT siblings free. Outside that,
+reach for `blake3` directly.
+
+This project started as an exercise in taking one question — "which hash is
+faster?" — all the way down to instruction-level scheduling. The honest
+conclusion is the classic one, now measured rather than assumed: **the
+algorithm rules; fine-tuning is a rounding error.**
+
 ## Platform support
 
 - **Linux**: verified on real hybrid hardware (Intel i9-13900HK). Detection
