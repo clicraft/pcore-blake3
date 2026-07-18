@@ -103,6 +103,40 @@ Run with `cargo run --release --example <name>`.
 | `CoreHasher::threads` | thread count of this hasher |
 | `CoreHasher::hash_bytes` / `hash_file` / `hash_files` | hash |
 
+## Why one thread per physical core
+
+Three measured effects (all on the reference i9-13900HK) explain why one
+thread per physical core beats using every logical thread.
+
+**SMT barely moves BLAKE3.** Simultaneous multithreading (two hardware
+threads on one core — Intel Hyper-Threading) speeds a core up only when one
+thread leaves execution units idle, stalled on memory or a dependency, so
+its sibling can slip work into the gaps. BLAKE3's inner loop is almost pure
+256-bit AVX2 (SIMD) work that keeps the core's vector execution ports busy
+on its own — there are almost no idle slots for a second thread to fill, so
+it mostly just contends for the same vector ports. Across 15 interleaved
+trials the second thread per P-core changed throughput by only **+2.5%**
+(P-cores alone) to **−2.5%** (whole machine): statistically real, but tiny.
+
+**Memory contention decides the sign.** That small residual flips with
+memory pressure. On the P-cores alone, DRAM latency leaves just enough
+slack for the sibling thread to hide, so SMT nets +2.5%. With every core
+hashing at once, the shared L3 and the memory controller become the limit,
+and the extra SMT threads add more traffic than they hide — so SMT nets
+−2.5%.
+
+**So more threads choke a busy machine.** Going from 14 threads (one per
+physical core) to 20 (adding the SMT siblings) piles work onto cores whose
+vector units are already saturated and a memory subsystem that's already
+the shared bottleneck — total throughput drops slightly instead of rising.
+One thread per physical core drives every real execution unit without the
+SMT port contention or the extra memory pressure: the sweet spot.
+
+(The efficiency cores are ~2x slower per core — narrower vector units,
+lower clocks — but there are more of them, so putting one thread on each
+E-core too adds ~40% aggregate throughput. That's why both modes span all
+physical cores, not just the P-cores.)
+
 ## Platform support
 
 - **Linux**: verified on real hybrid hardware (Intel i9-13900HK). Detection

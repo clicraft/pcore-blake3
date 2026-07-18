@@ -28,6 +28,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--all-threads` (default is one thread per physical core).
 - Added `all_logical_cpus()`.
 
+### Performance (reference i9-13900HK: 6 P-cores + 8 E-cores, 20 logical CPUs)
+
+- Batch of 64 diverse files: `new()` (14 threads, one per physical core)
+  **~14.5 GiB/s** vs `all_threads()` (20 logical threads) **~13.3 GiB/s** —
+  fewer threads, more throughput.
+- SMT (2nd thread per P-core), 15 interleaved trials + t-test: **+2.5% on
+  the P-cores alone**, **−2.5% across the whole machine** — small,
+  significant, and sign-flipping with memory contention.
+- Per physical core, a P-core is **~2x** an E-core; adding the E-cores
+  (one thread each) lifts aggregate in-memory throughput **~+40%** — which
+  is why both modes span all physical cores, not just the P-cores.
+
 ## [0.4.0] - 2026-07-18
 
 ### Added
